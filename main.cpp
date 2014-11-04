@@ -14,7 +14,6 @@
 #include <sstream>
 #include <vector>
 #include "Node.h"
-#include "Jacket.h"
 #include "Heap.h"
 
 using namespace std;
@@ -24,12 +23,33 @@ const int INFINIT = 99999;
 int bestRes;
 vector<int> bestComb;
 int nodeCounter;
-int numOfJackets;
+int numOfJackets = 4;
 int numOfMachines = 3;
+
+class Jacket {
+public:
+
+    Jacket() {
+    };
+
+    Jacket(vector<int> minutes) {
+        this->minutes = minutes;
+    };
+
+    int getMinutes(int index) {
+        return minutes[index];
+    }
+
+    void setMinutes(int index, int value) {
+        minutes[index] = value;
+    }
+private:
+    vector<int> minutes;
+};
 
 // Create the heap
 Heap* myHeap = new Heap();
-Jacket job[MAX_COLUMN];
+vector<vector<int> > job = vector<vector<int> >(numOfMachines, vector<int>(numOfJackets, 0));
 
 /*This function is called when there is an error*/
 void errorHandler(string errorMessage) {
@@ -38,7 +58,6 @@ void errorHandler(string errorMessage) {
     exit(0);
 }
 
-/*This fnction is two return greater number*/
 int findMAx(int n1, int n2) {
     if (n1 > n2) {
         return n1;
@@ -54,24 +73,19 @@ template < typename T > string toString(const T& n) {
     return val.str();
 }
 
-/* This function is to check required time for a specific combination of machines & jackets*/
-Jacket calculateComb(vector<int> idx) {
-
-    Jacket endTime(0, 0, 0);
-    for (int i = 0; i < idx.size(); i++) {
-        endTime.M1 += job[idx[i]].M1;
-        endTime.M2 = findMAx(endTime.M1, endTime.M2) + job[idx[i]].M2;
-        endTime.M3 = findMAx(endTime.M2, endTime.M3) + job[idx[i]].M3;
+Jacket getSequenceTime(vector<int> nodes) {
+    Jacket jacket(vector<int>(3, 0));
+    for (int i = 0; i < nodes.size(); i++) {
+        jacket.setMinutes(0, jacket.getMinutes(0) + job[0][nodes[i]]);
+        jacket.setMinutes(1, findMAx(jacket.getMinutes(0), jacket.getMinutes(1)) + job[nodes[i]][1]);
+        jacket.setMinutes(2, findMAx(jacket.getMinutes(0), jacket.getMinutes(2)) + job[nodes[i]][2]);
     }
-    return endTime;
-
+    return jacket;
 }
 
 /*This function is finding lowerBound which is the best time it can be possible to complete tasks*/
 int lowerBound(Jacket currT, vector<int> list) {
-    int totalM1 = 0;
-    int totalM2 = 0;
-    int totalM3 = 0;
+    vector<int> totals = vector<int>(numOfMachines, 0);
     int bestFinishTimeM23 = 0;
     int bestFinishTimeM3 = 0;
 
@@ -81,17 +95,18 @@ int lowerBound(Jacket currT, vector<int> list) {
     }
 
     for (int i = 0; i < list.size(); i++) {
-        totalM1 += job[list[i]].M1;
-        totalM2 += job[list[i]].M2;
-        totalM3 += job[list[i]].M3;
-        if (job[list[i]].M2 + job[list[i]].M3 < bestFinishTimeM23) {
-            bestFinishTimeM23 = job[list[i]].M2 + job[list[i]].M3;
+        totals[0] += job[0][list[i]];
+        totals[1] += job[1][list[i]];
+        totals[2] += job[2][list[i]];
+        if (job[1][list[i]] + job[2][list[i]] < bestFinishTimeM23) {
+            bestFinishTimeM23 = job[1][list[i]] + job[2][list[i]];
         }
-        if (job[list[i]].M3 < bestFinishTimeM3) {
-            bestFinishTimeM3 = job[list[i]].M3;
+        if (job[2][list[i]] < bestFinishTimeM3) {
+            bestFinishTimeM3 = job[2][list[i]];
         }
     }
-    return findMAx(currT.M1 + totalM1 + bestFinishTimeM23, findMAx(currT.M2 + totalM2 + bestFinishTimeM3, currT.M3 + totalM3));
+    return findMAx(currT.getMinutes(0) + totals[0] + bestFinishTimeM23,
+            findMAx(currT.getMinutes(1) + totals[1] + bestFinishTimeM3, currT.getMinutes(2) + totals[2]));
 }
 
 /*
@@ -100,8 +115,9 @@ This is the main function to compute branch abd bound
 void branchAndBound(vector<int> mySet) {
 
     //Initial lowerBound for best situation
-    int lowerBoundInitial = lowerBound(Jacket(0, 0, 0), mySet);
-    int upperBoundGlobal = calculateComb(mySet).M3;
+    int lowerBoundInitial = lowerBound(Jacket(vector<int>(numOfMachines, 0)), mySet);
+    Jacket jacket = getSequenceTime(mySet);
+    int upperBoundGlobal = jacket.getMinutes(2);
 
     /*
      I could change this to a vector and the only difference is in queue we pop from the front. To pop up data from the front with this--> myQueue.erase(myQueue.begin()); but I prefered to keep queue as it is cleaner and tidier
@@ -128,12 +144,12 @@ void branchAndBound(vector<int> mySet) {
         //myQueue.pop();
 
 
-        Jacket totalTime = calculateComb(currNode.PassedNodes);
+        Jacket totalTime = getSequenceTime(currNode.PassedNodes);
 
         //if its the final node, then check if it's best result.
         if (currNode.NeedPassNodes.size() == 0) {
-            if (totalTime.M3 < bestRes) {
-                bestRes = totalTime.M3;
+            if (totalTime.getMinutes(2) < bestRes) {
+                bestRes = totalTime.getMinutes(2);
                 bestComb = currNode.PassedNodes;
             }
             continue;
@@ -150,16 +166,16 @@ void branchAndBound(vector<int> mySet) {
             //calculate the overall time of the current ordered set
             vector<int> wholeSet(currNode.PassedNodes);
             wholeSet.insert(wholeSet.end(), currNode.NeedPassNodes.begin(), currNode.NeedPassNodes.end());
-            int upperBound = calculateComb(wholeSet).M3;
+            int upperBound = getSequenceTime(wholeSet).getMinutes(2);
             //udate global upper bound
             if (upperBound < upperBoundGlobal) {
                 upperBoundGlobal = upperBound;
             }
             //get the left boundary of the node
             Jacket newTimeSet = totalTime;
-            newTimeSet.M1 += job[currNode.NeedPassNodes[i]].M1;
-            newTimeSet.M2 = max(newTimeSet.M1, newTimeSet.M2) + job[currNode.NeedPassNodes[i]].M2;
-            newTimeSet.M3 = max(newTimeSet.M2, newTimeSet.M3) + job[currNode.NeedPassNodes[i]].M3;
+            newTimeSet.setMinutes(0, newTimeSet.getMinutes(0)+ job[0][currNode.NeedPassNodes[i]]);
+            newTimeSet.setMinutes(1, max(newTimeSet.getMinutes(0), newTimeSet.getMinutes(1)) + job[1][currNode.NeedPassNodes[i]]);
+            newTimeSet.setMinutes(2, max(newTimeSet.getMinutes(1), newTimeSet.getMinutes(2)) + job[2][currNode.NeedPassNodes[i]]);
             int lowBound = lowerBound(newTimeSet, newCombinationsLeft);
 
             //check boundaries, do not go further id lower bound worse then global upper bound
@@ -190,13 +206,13 @@ int main(int argc, const char * argv[]) {
             if (freopen(filePath.c_str(), "r", stdin) != NULL) {
                 cin >> numOfJackets;
                 for (int i = 0; i < numOfJackets; i++) {
-                    cin >> job[i].M1;
+                    cin >> job[0][i];
                 }
                 for (int i = 0; i < numOfJackets; i++) {
-                    cin >> job[i].M2;
+                    cin >> job[1][i];
                 }
                 for (int i = 0; i < numOfJackets; i++) {
-                    cin >> job[i].M3;
+                    cin >> job[2][i];
                 }
                 fclose(stdin);
 
@@ -209,9 +225,6 @@ int main(int argc, const char * argv[]) {
 
                 cout << "Started Branch and Bounds computation for " << numOfJackets << " jackets..." << endl;
                 bestRes = INFINIT;
-
-                Heap *heap = new Heap();
-                //branchAndBound(heap, bestRes, numOfJackets);
                 branchAndBound(mySet);
                 if (bestRes != INFINIT) {
                     cout << "Branch and Bounds calculation finished" << endl;
@@ -236,7 +249,7 @@ int main(int argc, const char * argv[]) {
         }
 
 
-    }    catch (exception ex) {
+    } catch (exception ex) {
         errorHandler((string) ex.what());
     }
 
